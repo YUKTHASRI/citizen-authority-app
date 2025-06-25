@@ -9,6 +9,7 @@ import IssueFormPage from './pages/IssueFormPage';
 import AuthorityDashboardPage from './pages/AuthorityDashboardPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
+import IssueDetailPage from './pages/IssueDetailPage';
 import { Fragment } from 'react';
 
 function AppContent() {
@@ -27,7 +28,9 @@ function AppContent() {
         <Route path="/signup/authority" element={<SignupAuthorityPage />} />
         <Route path="/login/authority" element={<LoginAuthorityPage />} />
         <Route path="/issue-form" element={<ProtectedRoute role="citizen"><IssueFormPage /></ProtectedRoute>} />
-     <Route path="/dashboard" element={<ProtectedRoute role="authority"><AuthorityDashboardPage /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute role="authority"><AuthorityDashboardPage /></ProtectedRoute>} />
+        <Route path="/issue/:id" element={<ProtectedRoute role="authority"><IssueDetailPage /></ProtectedRoute>} />
+
       </Routes>
     </Fragment>
   );

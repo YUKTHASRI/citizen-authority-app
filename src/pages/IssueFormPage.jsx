@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { supabase } from '../supabase/supabaseClient';
 import axios from 'axios';
+import emailjs from 'emailjs-com'; // 👈 Already imported
+
+// ... [AI functions: summarizeIssue, embedText, cosineSimilarity, generateTags] ...
 
 // 🔹 Cohere: Summarize the issue
 async function summarizeIssue(description) {
@@ -82,6 +85,7 @@ async function generateTags(text) {
   return tagsRaw.match(/#[\w-]+/g) || [];
 }
 
+
 export default function IssueFormPage() {
   const [formData, setFormData] = useState({
     name: '',
@@ -94,6 +98,7 @@ export default function IssueFormPage() {
     priority: ''
   });
 
+  const [customCategory, setCustomCategory] = useState('');
   const [images, setImages] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -115,16 +120,21 @@ export default function IssueFormPage() {
       return;
     }
 
-    // ✅ Validate Google Maps URL
     if (formData.location_url) {
       const regex = /^https:\/\/www\.google\.com\/maps\?q=(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/;
       if (!regex.test(formData.location_url.trim())) {
-        setError('Invalid Google Maps link. Use format: https://www.google.com/maps?q=12.9716,77.5946');
+        setError('Invalid Google Maps link.');
         return;
       }
     }
 
-    // ✅ Upload images
+    if (formData.category === 'other' && !customCategory.trim()) {
+      setError('Please specify the issue category.');
+      return;
+    }
+
+    const finalCategory = formData.category === 'other' ? customCategory.trim() : formData.category;
+
     let imageUrls = [];
     if (images.length > 0) {
       try {
@@ -152,19 +162,16 @@ export default function IssueFormPage() {
       }
     }
 
-    // ✅ Validate description length
     if (formData.description.length < 250) {
       setError('Description must be at least 250 characters for AI summarization.');
       return;
     }
 
-    // ✅ AI Enhancements
     let summary = '', embedding = [], sentiment = '', tags = [];
     try {
-      console.log("Description sent to summarizer:", formData.description);
       summary = await summarizeIssue(formData.description);
       embedding = await embedText(formData.description);
-      sentiment = "unclassified"; // classification removed (deprecated)
+      sentiment = "unclassified";
       tags = await generateTags(formData.description);
     } catch (err) {
       console.error('AI error:', err.response?.data || err.message);
@@ -172,7 +179,6 @@ export default function IssueFormPage() {
       return;
     }
 
-    // ✅ Duplicate check
     try {
       const { data, error } = await supabase
         .from('issues')
@@ -186,16 +192,16 @@ export default function IssueFormPage() {
       );
 
       if (isDuplicate) {
-        setError('This issue may already be reported. Please check existing reports.');
+        setError('This issue may already be reported.');
         return;
       }
     } catch (err) {
       console.error('Duplicate check failed:', err.message);
     }
 
-    // ✅ Save to Supabase
     const { error: insertError } = await supabase.from('issues').insert({
       ...formData,
+      category: finalCategory,
       citizen_id: user.id,
       images: imageUrls,
       summary,
@@ -218,94 +224,120 @@ export default function IssueFormPage() {
         category: '',
         priority: ''
       });
+      setCustomCategory('');
       setImages([]);
+
+      // ✅ Send confirmation email
+      const userEmail = user?.email;
+      
+      if (userEmail) {
+        try {
+          await emailjs.send(
+            'service_0lso4od',       // 🔁 Replace with EmailJS service ID
+            'template_rpsj2zc',      // 🔁 Replace with template ID
+            {
+              name: formData.name,
+              title: formData.title,
+              description: formData.description,
+              to_email: userEmail     // Template variable
+            },
+            'hRaD4qFMR-kuDWqtN'         // 🔁 Replace with your public key
+          );
+          console.log("Confirmation email sent.");
+        } catch (emailErr) {
+          console.error("Email failed:", emailErr.message);
+        }
+      }
     }
   };
 
   return (
     <div style={{ maxWidth: '600px', margin: '50px auto', padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
-      <h2 style={{ fontSize: '24px', marginBottom: '20px' }}>Submit an Issue</h2>
+      <h2>Submit an Issue</h2>
 
       {error && <p style={{ color: 'red' }}>{error}</p>}
       {success && <p style={{ color: 'green' }}>{success}</p>}
 
-      <form onSubmit={handleSubmit}>
-        {['name', 'phone', 'address', 'title'].map(field => (
-          <label key={field} style={{ display: 'block', marginBottom: '10px' }}>
-            {field.charAt(0).toUpperCase() + field.slice(1)}:
-            <input
-              type="text"
-              name={field}
-              value={formData[field]}
-              onChange={handleChange}
-              required
-              style={{ width: '100%', padding: '8px', marginTop: '4px', marginBottom: '15px' }}
-            />
-          </label>
-        ))}
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '16px' }}>
+  <div style={{ display: 'flex', gap: '16px' }}>
+    <label style={{ flex: 1 }}>
+      Name:
+      <input type="text" name="name" value={formData.name} onChange={handleChange} required />
+    </label>
+    <label style={{ flex: 1 }}>
+      Phone:
+      <input type="text" name="phone" value={formData.phone} onChange={handleChange} required />
+    </label>
+  </div>
 
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Description:
-          <textarea
-            name="description"
-            value={formData.description}
-            onChange={handleChange}
-            required
-            style={{ width: '100%', height: '100px', padding: '8px', marginBottom: '15px' }}
-          />
-        </label>
+  <label>
+    Address:
+    <input type="text" name="address" value={formData.address} onChange={handleChange} required />
+  </label>
 
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Category:
-          <select name="category" value={formData.category} onChange={handleChange} required style={{ width: '100%', padding: '8px' }}>
-            <option value="">Select Category</option>
-            <option value="pothole">Pothole</option>
-            <option value="water">Water Issue</option>
-            <option value="garbage">Garbage</option>
-            <option value="light">Light Outage</option>
-          </select>
-        </label>
+  <div style={{ display: 'flex', gap: '16px' }}>
+    <label style={{ flex: 1 }}>
+      Title:
+      <input type="text" name="title" value={formData.title} onChange={handleChange} required />
+    </label>
+    <label style={{ flex: 1 }}>
+      Category:
+      <select name="category" value={formData.category} onChange={handleChange} required>
+        <option value="">Select Category</option>
+        <option value="pothole">Pothole</option>
+        <option value="water">Water Issue</option>
+        <option value="garbage">Garbage</option>
+        <option value="light">Light Outage</option>
+        <option value="other">Other</option>
+      </select>
+    </label>
+  </div>
 
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Priority:
-          <select name="priority" value={formData.priority} onChange={handleChange} required style={{ width: '100%', padding: '8px' }}>
-            <option value="">Select Priority</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </label>
+  {formData.category === 'other' && (
+    <label>
+      Specify Category:
+      <input type="text" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} required />
+    </label>
+  )}
 
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Google Maps Link:
-          <input
-            type="url"
-            name="location_url"
-            value={formData.location_url}
-            onChange={handleChange}
-            placeholder="https://www.google.com/maps?q=12.9716,77.5946"
-            style={{ width: '100%', padding: '8px', marginBottom: '15px' }}
-          />
-        </label>
+  <label>
+    Description:
+    <textarea name="description" value={formData.description} onChange={handleChange} required />
+  </label>
 
-        <label style={{ display: 'block', marginBottom: '10px' }}>
-          Upload Images (up to 3):
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => setImages(Array.from(e.target.files).slice(0, 3))}
-            style={{ display: 'block', marginTop: '5px' }}
-          />
-        </label>
+  <div style={{ display: 'flex', gap: '16px' }}>
+    <label style={{ flex: 1 }}>
+      Priority:
+      <select name="priority" value={formData.priority} onChange={handleChange} required>
+        <option value="">Select Priority</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </label>
 
-        <button
-          type="submit"
-          style={{ padding: '10px 20px', backgroundColor: '#007BFF', color: 'white', border: 'none', borderRadius: '4px' }}
-        >
-          Submit
-        </button>
-      </form>
+    <label style={{ flex: 2 }}>
+      Maps Link:
+      <input
+        type="url"
+        name="location_url"
+        placeholder="https://www.google.com/maps?q=12.9716,77.5946"
+        value={formData.location_url}
+        onChange={handleChange}
+      />
+    </label>
+  </div>
+
+  <label>
+    Upload Images:
+    <input type="file" accept="image/*" multiple onChange={(e) => setImages(Array.from(e.target.files).slice(0, 3))} />
+  </label>
+
+  <button type="submit" style={{ padding: '10px', backgroundColor: '#007BFF', color: 'white', border: 'none', borderRadius: '4px' }}>
+    Submit
+  </button>
+</form>
+
     </div>
   );
 }
